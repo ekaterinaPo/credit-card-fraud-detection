@@ -1,0 +1,215 @@
+========================================================================
+  CREDIT CARD FRAUD DETECTION
+  Imbalanced Classification — Machine Learning Project
+========================================================================
+  Kate Pogrebnyakova | Data Scientist
+========================================================================
+
+
+BUSINESS QUESTION
+------------------------------------------------------------------------
+A bank processes 284,807 credit card transactions over 2 days.
+492 are fraudulent — just 0.17% of all transactions.
+
+How do we build a model that catches as much fraud as possible
+without blocking too many legitimate customers?
+
+This is a precision-recall tradeoff problem. The cost of missing
+fraud (bank absorbs the loss) is very different from the cost of
+a false alarm (customer friction, churn risk). The optimal model
+is not the one with the highest accuracy — it is the one that
+minimises total business cost.
+
+
+THE DATA
+------------------------------------------------------------------------
+Dataset: Credit Card Fraud Detection (Kaggle / ULB Machine Learning Group)
+  - 284,807 transactions | 492 fraud cases = 0.173%
+  - 2 days of European cardholder transactions, September 2013
+  - No missing values
+
+Columns:
+  - Time:    seconds since first transaction (2-day window)
+  - V1–V28:  PCA-transformed features (anonymised for privacy)
+  - Amount:  transaction amount in euros (€0.00 – €25,691)
+  - Class:   0 = legitimate, 1 = fraud (target variable)
+
+Key data facts:
+  - V1–V28 are already PCA-scaled — do NOT scale them again
+  - Time and Amount must be scaled before modelling
+  - Stratified split is mandatory (0.17% fraud → random split
+    could put all fraud in one set)
+
+
+WHY ACCURACY IS THE WRONG METRIC
+------------------------------------------------------------------------
+A model that predicts "no fraud" for every single transaction:
+  - Accuracy: 99.83%
+  - Fraud caught: 0
+  - Fraud missed: 492
+
+This model is completely useless, yet it scores 99.83% accuracy.
+
+The correct metric for this problem is Precision-Recall AUC
+(also called Average Precision). It focuses on how well the model
+identifies the minority class (fraud) — which is the only thing
+that matters.
+
+  Precision = of all fraud alerts fired, what % were real fraud
+  Recall    = of all real fraud, what % did we catch
+  PR-AUC    = area under the precision-recall curve
+               (higher = better detection of fraud)
+
+
+DATA PREPARATION
+------------------------------------------------------------------------
+1. Scale Time and Amount with StandardScaler (V1–V28 already scaled)
+
+2. Stratified train/test split:
+     Train: 227,846 rows | 394 fraud (0.173%)
+     Test:   56,961 rows |  98 fraud (0.172%)
+
+3. SMOTE applied to training set only:
+     Before: 394 fraud | 227,452 legitimate
+     After:  227,452 fraud | 227,452 legitimate (balanced)
+
+   SMOTE creates synthetic fraud samples in the training set.
+   The test set is NEVER touched — it remains the original
+   imbalanced distribution (the real-world scenario).
+
+
+MODELS
+------------------------------------------------------------------------
+Three models were trained and compared:
+
+  Model 1: Logistic Regression (baseline)
+    - Trained on SMOTE-balanced training set
+    - Simple linear classifier — establishes minimum benchmark
+
+  Model 2: Random Forest
+    - class_weight='balanced' (second approach to imbalance)
+    - 100 trees, no SMOTE needed — handles imbalance algorithmically
+
+  Model 3: XGBoost
+    - scale_pos_weight = 577 (negative/positive ratio)
+    - Third approach to imbalance: native gradient boosting weight
+    - 200 estimators, depth 6, learning rate 0.1
+
+
+RESULTS
+------------------------------------------------------------------------
+
+┌──────────────────────┬────────┬────────┬────────┬─────┬──────┐
+│ Model                │ PR-AUC │ Recall │ Precis │  FN │   FP │
+├──────────────────────┼────────┼────────┼────────┼─────┼──────┤
+│ Logistic Regression  │ 0.7249 │  91.8% │   5.8% │   8 │ 1458 │
+│ Random Forest        │ 0.8653 │  75.5% │  96.1% │  24 │    3 │
+│ XGBoost              │ 0.8810 │  83.7% │  87.2% │  16 │   12 │
+└──────────────────────┴────────┴────────┴────────┴─────┴──────┘
+
+  FN = false negatives (fraud missed)
+  FP = false positives (legitimate transactions blocked)
+
+Logistic Regression catches 90 of 98 fraud cases but fires 1,458
+false alerts — operationally very noisy. Random Forest has very
+high precision (almost no false alerts) but misses 24 fraud cases.
+XGBoost balances both: good recall with manageable false alarms.
+
+
+THRESHOLD TUNING — BUSINESS COST OPTIMISATION
+------------------------------------------------------------------------
+Most models use default threshold 0.5. The better question is:
+what threshold minimises total expected cost?
+
+Cost assumptions (illustrative):
+  False Negative (missed fraud):  €200 per case
+  False Positive (false alarm):   €10  per case
+
+XGBoost was tuned by sweeping thresholds from 0.01 to 0.99 and
+computing total expected cost at each point:
+
+  Total cost = (FN × €200) + (FP × €10)
+
+Result:
+  Optimal threshold: ~0.35 (varies slightly each run)
+  At optimal threshold vs default 0.5:
+    → More fraud caught (higher recall)
+    → Total business cost is minimised
+    → The exact numbers depend on the cost assumptions —
+       changing them changes the optimal threshold
+
+This is the most important finding: the right threshold is a
+business decision, not a statistics decision.
+
+
+TOP FEATURES
+------------------------------------------------------------------------
+Based on XGBoost feature importance (F-score):
+
+  Most important: V14, V17, V12, V10, V4
+  (PCA components — original meaning anonymised)
+
+  Amount and Time contribute but are less important than the
+  V features, which carry the strongest fraud signal.
+
+
+IMBALANCE HANDLING — 3 APPROACHES COMPARED
+------------------------------------------------------------------------
+  SMOTE (Logistic Regression):
+    Creates synthetic minority samples — balances the training set.
+    Risk: can create unrealistic synthetic samples.
+
+  class_weight='balanced' (Random Forest):
+    Upweights minority class errors during tree building.
+    No new samples created — algorithmic adjustment.
+
+  scale_pos_weight (XGBoost):
+    Native XGBoost parameter — weights positive class by the ratio
+    of negative to positive samples (577 in this dataset).
+    Simple and effective for gradient boosting.
+
+All three outperform no imbalance handling by a wide margin.
+Including all three demonstrates breadth of approach.
+
+
+TECHNOLOGY STACK
+------------------------------------------------------------------------
+  Data:          pandas, numpy
+  Preprocessing: scikit-learn (StandardScaler, train_test_split)
+  Imbalance:     imbalanced-learn (SMOTE)
+  Models:        scikit-learn (LogisticRegression, RandomForest)
+                 XGBoost (XGBClassifier)
+  Evaluation:    precision_recall_curve, average_precision_score,
+                 confusion_matrix, classification_report
+  Visualisation: matplotlib, seaborn
+
+
+KEY TAKEAWAYS
+------------------------------------------------------------------------
+1. Accuracy is not the right metric for imbalanced classification.
+   PR-AUC is.
+
+2. XGBoost achieves the highest PR-AUC (0.881) and a strong
+   balance between recall and precision.
+
+3. The optimal classification threshold depends on business cost
+   assumptions — not on statistical defaults.
+
+4. Three different imbalance strategies were compared — all valid,
+   each with different tradeoffs between precision and recall.
+
+5. From an accounting and finance perspective: the cost structure
+   here mirrors credit risk frameworks. Missed fraud costs the
+   institution; false alarms cost customer relationships.
+   The model should be tuned to reflect that asymmetry.
+
+
+========================================================================
+  Files in this project:
+    notebooks/01_eda_and_cleaning.ipynb   — EDA, distributions, preprocessing
+    notebooks/02_modelling.ipynb          — models, evaluation, threshold tuning
+    outputs/plots/                        — 9 exported chart PNGs
+    Fraud_Detection_Project_Plan.md       — full execution plan
+    requirements.txt                      — Python dependencies
+    README.md                             — GitHub project overview
+========================================================================
