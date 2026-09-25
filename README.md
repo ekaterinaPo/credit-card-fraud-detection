@@ -47,9 +47,6 @@ Python, pandas, scikit-learn, XGBoost, imbalanced-learn (SMOTE), matplotlib, sea
 ├── notebooks/
 │   ├── 01_eda_and_cleaning.ipynb
 │   └── 02_modelling.ipynb
-├── outputs/
-│   ├── plots/                  — 10 exported charts
-│   └── project_presentation.pdf
 ├── data/raw/                   — dataset not committed (see below)
 └── requirements.txt
 ```

@@ -1,5 +1,8 @@
 data/raw/creditcard.csv
 Fraud_Detection_Project_Plan.md
 data/README.md
+outputs/
+make_pdf.py
+build_notebooks.py
 __pycache__/
 .ipynb_checkpoints/
